@@ -310,3 +310,5 @@ def webhook():
 @app.route('/')
 def index():
     return "ربات فعال است! 🤖"
+if __name__ == "__main__":
+    app.run()
