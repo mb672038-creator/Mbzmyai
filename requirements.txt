@@ -1,5 +1,6 @@
-flask==2.2.5
-python-telegram-bot==20.7
+flask
+python-telegram-bot
 requests
 pillow
 gunicorn
+langdetect
