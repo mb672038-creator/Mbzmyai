@@ -299,6 +299,7 @@ def webhook():
         return "ربات در حال آماده‌سازی...", 503
     try:
         data = request.get_json(force=True)
+        print(f"Webhook received update_id: {data.get('update_id')}", file=sys.stderr)
         update = Update.de_json(data, bot_app.bot)
         asyncio.run_coroutine_threadsafe(bot_app.process_update(update), bot_loop)
         return 'OK', 200
