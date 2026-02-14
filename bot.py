@@ -18,9 +18,9 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 from telegram.constants import ParseMode
 
 # ====== دریافت متغیرهای محیطی ======
-TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
-OCR_API_KEY = os.environ.get("OCR_API_KEY")
+TELEGRAM_TOKEN = "8286435359:AAHUBJ-_WvQCz4pHkF-WqT8ypuk7lYCNnZI"
+GROQ_API_KEY = "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"
+OCR_API_KEY = "K86067744288957"
 
 if not TELEGRAM_TOKEN or not GROQ_API_KEY:
     raise ValueError("لطفاً متغیرهای محیطی TELEGRAM_TOKEN و GROQ_API_KEY را تنظیم کنید.")
