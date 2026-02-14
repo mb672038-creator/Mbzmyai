@@ -15,7 +15,8 @@ from flask import Flask, request
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFile
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 from telegram.constants import ParseMode
-
+import logging
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 # ====== دریافت متغیرهای محیطی ======
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
@@ -236,7 +237,7 @@ async def handle_unknown_media(update: Update, context: ContextTypes.DEFAULT_TYP
 
 # ====== خطاهای عمومی ======
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    print(f"⚠️ خطا: {context.error}", file=sys.stderr)
+    print(f"⚠️ خطا در ربات: {context.error}", file=sys.stderr)
     if update and update.message:
         await update.message.reply_text("❌ خطایی رخ داد. لطفاً دوباره تلاش کنید.")
 
@@ -259,14 +260,19 @@ bot_loop = None
 
 def run_bot():
     global bot_loop, bot_ready
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop.run_until_complete(bot_app.initialize())
-    loop.run_until_complete(bot_app.start())
-    bot_loop = loop
-    bot_ready = True
-    print("✅ ربات آماده شد.", file=sys.stderr)
-    loop.run_forever()
+    try:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(bot_app.initialize())
+        loop.run_until_complete(bot_app.start())
+        bot_loop = loop
+        bot_ready = True
+        print("✅ ربات آماده شد.", file=sys.stderr)
+        loop.run_forever()
+    except Exception as e:
+        print(f"❌ خطا در run_bot: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
 
 threading.Thread(target=run_bot, daemon=True).start()
 
@@ -297,14 +303,19 @@ set_webhook()
 def webhook():
     if not bot_ready:
         return "ربات در حال آماده‌سازی...", 503
+    if not bot_loop or not bot_loop.is_running():
+        print("❌ bot_loop غیرفعال است!", file=sys.stderr)
+        return "ربات در حال راه‌اندازی مجدد...", 503
     try:
         data = request.get_json(force=True)
-        print(f"Webhook received update_id: {data.get('update_id')}", file=sys.stderr)
+        print(f"✅ Webhook received update_id: {data.get('update_id')}", file=sys.stderr)
         update = Update.de_json(data, bot_app.bot)
         asyncio.run_coroutine_threadsafe(bot_app.process_update(update), bot_loop)
         return 'OK', 200
     except Exception as e:
         print(f"❌ خطا در webhook: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
         return 'Error', 500
 
 # ====== صفحه اصلی (برای تست و UptimeRobot) ======
