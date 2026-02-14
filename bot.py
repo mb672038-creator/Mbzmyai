@@ -276,6 +276,7 @@ def run_bot():
         print(f"❌ خطا در run_bot: {e}", file=sys.stderr)
         import traceback
         traceback.print_exc(file=sys.stderr)
+        bot_ready = False
 
 threading.Thread(target=run_bot, daemon=True).start()
 
@@ -310,16 +311,21 @@ def webhook():
         data = request.get_json(force=True)
         update = Update.de_json(data, bot_app.bot)
         
-        # تعریف تابع callback برای گرفتن خطاهای احتمالی
+        # ====== چک زنده بودن loop ======
+        if not bot_loop or not bot_loop.is_running():
+            print("❌ bot_loop متوقف شده است!", file=sys.stderr)
+            return "loop dead", 500
+        
+        # ====== تابع callback برای گرفتن نتیجه ======
         def handle_update_future(future):
             try:
-                future.result()  # اگر خطایی باشد، اینجا رخ می‌دهد
+                future.result()
+                print("✅ update processed successfully", file=sys.stderr)
             except Exception as e:
                 print(f"❌ خطا در پردازش update: {e}", file=sys.stderr)
                 import traceback
                 traceback.print_exc(file=sys.stderr)
         
-        # ایجاد future و افزودن callback
         future = asyncio.run_coroutine_threadsafe(bot_app.process_update(update), bot_loop)
         future.add_done_callback(handle_update_future)
         
