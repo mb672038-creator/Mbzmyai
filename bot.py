@@ -5,10 +5,11 @@ import threading
 import asyncio
 import os
 import re
-import traceback
 import logging
+import traceback
 from collections import defaultdict
 from pathlib import Path
+from datetime import datetime
 
 import requests
 from PIL import Image
@@ -16,6 +17,14 @@ from flask import Flask, request
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFile
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 from telegram.constants import ParseMode
+
+# ====== تنظیم لاگینگ پیشرفته ======
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler(sys.stderr)]
+)
+logger = logging.getLogger(__name__)
 
 # ====== دریافت متغیرهای محیطی ======
 TELEGRAM_TOKEN = "8286435359:AAHUBJ-_WvQCz4pHkF-WqT8ypuk7lYCNnZI"
@@ -25,38 +34,49 @@ OCR_API_KEY = "K86067744288957"
 if not TELEGRAM_TOKEN or not GROQ_API_KEY:
     raise ValueError("لطفاً متغیرهای محیطی TELEGRAM_TOKEN و GROQ_API_KEY را تنظیم کنید.")
 
+logger.info(f"TELEGRAM_TOKEN loaded: {TELEGRAM_TOKEN[:5]}...")
+logger.info(f"GROQ_API_KEY loaded: {GROQ_API_KEY[:5]}...")
+if OCR_API_KEY:
+    logger.info(f"OCR_API_KEY loaded: {OCR_API_KEY[:5]}...")
+
 # ====== تنظیمات ======
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
-MODEL = "llama-3.3-70b-versatile"
-IMAGE_GEN_API = "https://image.pollinations.ai/prompt"
-OCR_URL = "https://api.ocr.space/parse/image"
+MODEL = "llama-3.3-70b-versatile"          # مدل قوی و رایگان
+IMAGE_GEN_API = "https://image.pollinations.ai/prompt"  # ساخت عکس رایگان
+OCR_URL = "https://api.ocr.space/parse/image"           # OCR رایگان
 WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "https://mbzmyai.onrender.com/webhook")
 TIMEOUT = 60
-DOWNLOAD_PATH = "/tmp/groqbot_files"
 
+DOWNLOAD_PATH = "/tmp/groqbot_files"
 Path(DOWNLOAD_PATH).mkdir(parents=True, exist_ok=True)
+logger.info(f"Download path: {DOWNLOAD_PATH}")
 
 app = Flask(__name__)
 
-# تاریخچه مکالمات
 user_history = defaultdict(list)
-
-# تنظیمات لاگ
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
 
 # ====== تشخیص زبان ساده ======
 def detect_language(text):
     persian_chars = set("ابپتثجچحخدذرزژسشصضطظعغفقکگلمنوهیئءآاًهٔ")
-    return "persian" if any(ch in persian_chars for ch in text) else "english"
+    if any(ch in persian_chars for ch in text):
+        return "persian"
+    return "english"
 
 # ====== درخواست به Groq ======
 def ask_groq(user_message, history):
-    headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json"
+    }
     lang = detect_language(user_message)
     system = "شما یک دستیار فارسی‌دان هستید. به فارسی پاسخ دهید." if lang == "persian" else "You are a helpful assistant. Answer in the same language as the user."
     messages = [{"role": "system", "content": system}] + history[-5:] + [{"role": "user", "content": user_message}]
-    payload = {"model": MODEL, "messages": messages, "temperature": 0.7, "max_tokens": 2000}
+    payload = {
+        "model": MODEL,
+        "messages": messages,
+        "temperature": 0.7,
+        "max_tokens": 2000
+    }
     try:
         r = requests.post(GROQ_URL, headers=headers, json=payload, timeout=TIMEOUT)
         r.raise_for_status()
@@ -67,8 +87,11 @@ def ask_groq(user_message, history):
         return "🔌 خطای اتصال به اینترنت."
     except requests.exceptions.HTTPError as e:
         if r.status_code == 401:
-            return "❌ کلید Groq نامعتبر است."
-        return f"❌ خطای HTTP: {r.status_code}"
+            return "❌ کلید Groq نامعتبر است. لطفاً کلید جدید بسازید."
+        elif r.status_code == 400:
+            return "❌ درخواست نامعتبر (مدل را بررسی کنید)."
+        else:
+            return f"❌ خطای HTTP: {r.status_code}"
     except Exception as e:
         return f"❌ خطای غیرمنتظره: {type(e).__name__}"
 
@@ -99,16 +122,16 @@ def extract_text_from_image(image_path: str) -> str:
             data = {'apikey': OCR_API_KEY, 'language': 'per', 'isOverlayRequired': False}
             response = requests.post(OCR_URL, files=files, data=data, timeout=TIMEOUT)
             result = response.json()
-            if not result.get('IsErroredOnProcessing'):
+            if result.get('IsErroredOnProcessing') is False:
                 return result['ParsedResults'][0]['ParsedText']
             else:
                 return "❌ متنی در عکس یافت نشد."
     except Exception as e:
         return f"❌ خطای OCR: {type(e).__name__}"
 
-# ====== هندلر فرمان /start با دکمه ======
+# ====== هندلر فرمان /start ======
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    logger.info("start handler executed")
+    logger.info("✅ start handler executed")
     keyboard = [[InlineKeyboardButton("🧹 پاک کردن تاریخچه", callback_data="clear")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
     welcome_text = (
@@ -118,8 +141,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• ساخت عکس با هوش مصنوعی – بگویید «عکس ... بساز»\n"
         "• خواندن متن عکس‌ها (OCR) – با ارسال عکس\n"
         "• ذخیره همه نوع فایل\n"
-        "• یادگیری مکالمات قبلی شما\n"
-        "• تایم‌اوت ۶۰ ثانیه – مناسب اینترنت ضعیف\n\n"
+        "• یادگیری مکالمات قبلی شما\n\n"
         "💬 **هر سوالی داری بپرس.**"
     )
     await update.message.reply_text(welcome_text, parse_mode=ParseMode.MARKDOWN, reply_markup=reply_markup)
@@ -130,12 +152,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     if query.data == "clear":
         user_id = update.effective_user.id
-        user_history[user_id].clear()
-        await query.edit_message_text("🧹 تاریخچه مکالمه پاک شد.")
+        if user_id in user_history:
+            user_history[user_id].clear()
+        await query.edit_message_text("🧹 تاریخچه پاک شد.")
 
 # ====== هندلر پیام‌های متنی ======
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    logger.info("handle_text executed")
+    logger.info("✅ handle_text executed")
     user_id = update.effective_user.id
     text = update.message.text
 
@@ -144,32 +167,31 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         prompt = re.sub(r'(عکس|تصویر|بساز|draw|image|picture|generate|of|a|an|یک|یه)\s*', '', text, flags=re.IGNORECASE).strip()
         if not prompt:
             prompt = text
-        thinking = await update.message.reply_text("🎨 در حال ساخت عکس... لطفاً صبر کنید")
+        thinking = await update.message.reply_text("🎨 در حال ساخت عکس...")
         img_path = generate_image(prompt)
-        if img_path:
+        if img_path and os.path.exists(img_path):
             with open(img_path, 'rb') as f:
-                await update.message.reply_photo(photo=InputFile(f), caption=f"🖼️ عکس برای: {prompt}")
+                await update.message.reply_photo(photo=InputFile(f), caption=f"🖼️ {prompt}")
             await thinking.delete()
         else:
             await thinking.edit_text("❌ ساخت عکس با خطا مواجه شد.")
         return
 
-    # پاسخ عادی
     user_history[user_id].append({"role": "user", "content": text})
     thinking = await update.message.reply_text("⏳ در حال فکر کردن...")
     answer = ask_groq(text, user_history[user_id][:-1])
     user_history[user_id].append({"role": "assistant", "content": answer})
     await thinking.edit_text(answer)
 
-# ====== هندلر عکس (OCR + ذخیره) ======
+# ====== هندلر عکس ======
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    logger.info("handle_photo executed")
+    logger.info("✅ handle_photo executed")
     photo = update.message.photo[-1]
     file = await context.bot.get_file(photo.file_id)
     timestamp = int(time.time())
     filename = f"{DOWNLOAD_PATH}/photo_{timestamp}.jpg"
     await file.download_to_drive(filename)
-    await update.message.reply_text(f"🖼️ عکس ذخیره شد: {filename}")
+    await update.message.reply_text(f"🖼️ عکس ذخیره شد:\n{filename}")
 
     ocr_text = extract_text_from_image(filename)
     if ocr_text and "❌" not in ocr_text and "🔑" not in ocr_text:
@@ -179,60 +201,61 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ====== هندلر فیلم ======
 async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    logger.info("handle_video executed")
+    logger.info("✅ handle_video executed")
     video = update.message.video
     file = await context.bot.get_file(video.file_id)
     timestamp = int(time.time())
     filename = f"{DOWNLOAD_PATH}/video_{timestamp}.mp4"
     await file.download_to_drive(filename)
-    await update.message.reply_text(f"🎬 فیلم ذخیره شد: {filename}")
+    await update.message.reply_text(f"🎬 فیلم ذخیره شد:\n{filename}")
 
 # ====== هندلر صدا ======
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    logger.info("handle_voice executed")
+    logger.info("✅ handle_voice executed")
     voice = update.message.voice
     file = await context.bot.get_file(voice.file_id)
     timestamp = int(time.time())
     filename = f"{DOWNLOAD_PATH}/voice_{timestamp}.ogg"
     await file.download_to_drive(filename)
-    await update.message.reply_text(f"🎤 صدا ذخیره شد: {filename}")
+    await update.message.reply_text(f"🎤 صدا ذخیره شد:\n{filename}")
 
 # ====== هندلر سند ======
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    logger.info("handle_document executed")
+    logger.info("✅ handle_document executed")
     doc = update.message.document
     file = await context.bot.get_file(doc.file_id)
     timestamp = int(time.time())
     ext = os.path.splitext(doc.file_name)[1] if doc.file_name else ".bin"
-    filename = f"{DOWNLOAD_PATH}/doc_{timestamp}{ext}"
+    ext = ext.lstrip(".")
+    filename = f"{DOWNLOAD_PATH}/doc_{timestamp}.{ext}"
     await file.download_to_drive(filename)
-    await update.message.reply_text(f"📄 فایل ذخیره شد: {filename}")
+    await update.message.reply_text(f"📄 فایل ذخیره شد:\n{filename}")
 
 # ====== هندلر استیکر ======
 async def handle_sticker(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    logger.info("handle_sticker executed")
+    logger.info("✅ handle_sticker executed")
     sticker = update.message.sticker
     if sticker.is_animated or sticker.is_video:
-        await update.message.reply_text("🎭 استیکر متحرک قابل ذخیره نیست.")
+        await update.message.reply_text("🎭 استیکر متحرک (قابلیت ذخیره ندارد)")
     else:
         file = await context.bot.get_file(sticker.file_id)
         timestamp = int(time.time())
         filename = f"{DOWNLOAD_PATH}/sticker_{timestamp}.png"
         await file.download_to_drive(filename)
-        await update.message.reply_text(f"🎭 استیکر ذخیره شد: {filename}")
+        await update.message.reply_text(f"🎭 استیکر ذخیره شد:\n{filename}")
 
 # ====== هندلر سایر فایل‌ها ======
 async def handle_unknown_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    logger.info("handle_unknown_media executed")
-    await update.message.reply_text("📦 فایل دریافت شد. قابل پردازش نیست.")
+    await update.message.reply_text("📦 فایل دریافت شد، اما قابل پردازش نیست.")
 
 # ====== خطاهای عمومی ======
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    logger.error(f"Exception in handler: {context.error}", exc_info=context.error)
+    logger.error(f"خطا در ربات: {context.error}")
     if update and update.message:
         await update.message.reply_text("❌ خطایی رخ داد. لطفاً دوباره تلاش کنید.")
 
 # ====== ساخت ربات ======
+logger.info("Building bot application...")
 bot_app = Application.builder().token(TELEGRAM_TOKEN).build()
 bot_app.add_handler(CommandHandler("start", start))
 bot_app.add_handler(CallbackQueryHandler(button_handler))
@@ -254,14 +277,17 @@ def run_bot():
     try:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
+        logger.info("Initializing bot...")
         loop.run_until_complete(bot_app.initialize())
+        logger.info("Bot initialized, starting...")
         loop.run_until_complete(bot_app.start())
         bot_loop = loop
         bot_ready = True
         logger.info("✅ ربات آماده شد.")
         loop.run_forever()
     except Exception as e:
-        logger.error(f"❌ خطا در run_bot: {e}", exc_info=True)
+        logger.error(f"❌ خطا در run_bot: {e}")
+        traceback.print_exc(file=sys.stderr)
         bot_ready = False
 
 threading.Thread(target=run_bot, daemon=True).start()
@@ -275,50 +301,60 @@ for _ in range(30):
 # ====== تنظیم Webhook ======
 def set_webhook():
     try:
+        logger.info("Setting webhook...")
         resp = requests.post(
             f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/setWebhook",
-            data={"url": WEBHOOK_URL, "max_connections": 40}
+            data={"url": WEBHOOK_URL, "max_connections": 40},
+            timeout=10
         )
         if resp.status_code == 200 and resp.json().get("ok"):
             logger.info("✅ Webhook تنظیم شد.")
         else:
-            logger.warning(f"⚠️ Webhook تنظیم نشد: {resp.text}")
+            logger.error(f"⚠️ Webhook تنظیم نشد: {resp.text}")
     except Exception as e:
         logger.error(f"⚠️ خطا در تنظیم Webhook: {e}")
 
 set_webhook()
 
-# ====== مسیر Webhook برای دریافت پیام‌های تلگرام ======
+# ====== مسیر Webhook ======
 @app.route('/webhook', methods=['POST'])
 def webhook():
     if not bot_ready:
+        logger.warning("ربات هنوز آماده نیست، درخواست رد شد.")
         return "ربات در حال آماده‌سازی...", 503
     try:
         data = request.get_json(force=True)
-        logger.debug(f"Webhook received data: {data}")
-        update = Update.de_json(data, bot_app.bot)
+        update_id = data.get('update_id')
+        logger.info(f"✅ Webhook received update_id: {update_id}")
 
         # چک زنده بودن loop
         if not bot_loop or not bot_loop.is_running():
             logger.error("❌ bot_loop متوقف شده است!")
             return "loop dead", 500
 
+        update = Update.de_json(data, bot_app.bot)
+
         def handle_update_future(future):
             try:
                 future.result()
-                logger.info("✅ update processed successfully")
+                logger.info(f"✅ update {update_id} processed successfully")
             except Exception as e:
-                logger.error(f"❌ خطا در پردازش update: {e}", exc_info=True)
+                logger.error(f"❌ خطا در پردازش update {update_id}: {e}")
+                traceback.print_exc(file=sys.stderr)
 
         future = asyncio.run_coroutine_threadsafe(bot_app.process_update(update), bot_loop)
         future.add_done_callback(handle_update_future)
 
         return 'OK', 200
     except Exception as e:
-        logger.error(f"❌ خطا در webhook: {e}", exc_info=True)
+        logger.error(f"❌ خطا در webhook: {e}")
+        traceback.print_exc(file=sys.stderr)
         return 'Error', 500
 
 # ====== صفحه اصلی ======
 @app.route('/')
 def index():
     return "ربات فعال است! 🤖"
+
+if __name__ == "__main__":
+    app.run()
