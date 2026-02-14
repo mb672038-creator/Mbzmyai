@@ -29,7 +29,7 @@ GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 MODEL = "llama-3.3-70b-versatile"          # مدل قوی و رایگان
 IMAGE_GEN_API = "https://image.pollinations.ai/prompt"  # ساخت عکس رایگان
 OCR_URL = "https://api.ocr.space/parse/image"           # OCR رایگان
-WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "https://your-app.onrender.com/webhook")  # آدرس Render شما
+WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "https://mbzmyai.onrender.com/webhook")  # آدرس Render شما
 TIMEOUT = 60                               # برای اینترنت ضعیف
 
 # پوشه ذخیره فایل‌ها (دسترسی در Render محدود است، از /tmp استفاده می‌کنیم)
