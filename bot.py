@@ -121,6 +121,7 @@ def extract_text_from_image(image_path: str) -> str:
 
 # ====== هندلر فرمان /start با دکمه ======
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    print("✅ start handler executed", file=sys.stderr)
     print("✅ تابع start اجرا شد.", file=sys.stderr)
     keyboard = [[InlineKeyboardButton("🧹 پاک کردن تاریخچه", callback_data="clear")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -149,6 +150,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ====== هندلر پیام‌های متنی (پاسخگویی هوشمند + تشخیص ساخت عکس) ======
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    print("✅ handle_text executed", file=sys.stderr)
     user_id = update.effective_user.id
     text = update.message.text
 
@@ -304,19 +306,26 @@ set_webhook()
 def webhook():
     if not bot_ready:
         return "ربات در حال آماده‌سازی...", 503
-    if not bot_loop or not bot_loop.is_running():
-        print("❌ bot_loop غیرفعال است!", file=sys.stderr)
-        return "ربات در حال راه‌اندازی مجدد...", 503
     try:
         data = request.get_json(force=True)
-        print(f"✅ Webhook received update_id: {data.get('update_id')}", file=sys.stderr)
         update = Update.de_json(data, bot_app.bot)
-        asyncio.run_coroutine_threadsafe(bot_app.process_update(update), bot_loop)
+        
+        # تعریف تابع callback برای گرفتن خطاهای احتمالی
+        def handle_update_future(future):
+            try:
+                future.result()  # اگر خطایی باشد، اینجا رخ می‌دهد
+            except Exception as e:
+                print(f"❌ خطا در پردازش update: {e}", file=sys.stderr)
+                import traceback
+                traceback.print_exc(file=sys.stderr)
+        
+        # ایجاد future و افزودن callback
+        future = asyncio.run_coroutine_threadsafe(bot_app.process_update(update), bot_loop)
+        future.add_done_callback(handle_update_future)
+        
         return 'OK', 200
     except Exception as e:
         print(f"❌ خطا در webhook: {e}", file=sys.stderr)
-        import traceback
-        traceback.print_exc(file=sys.stderr)
         return 'Error', 500
 
 # ====== صفحه اصلی (برای تست و UptimeRobot) ======
