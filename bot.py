@@ -121,6 +121,7 @@ def extract_text_from_image(image_path: str) -> str:
 
 # ====== هندلر فرمان /start با دکمه ======
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    print("✅ تابع start اجرا شد.", file=sys.stderr)
     keyboard = [[InlineKeyboardButton("🧹 پاک کردن تاریخچه", callback_data="clear")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
     welcome_text = (
